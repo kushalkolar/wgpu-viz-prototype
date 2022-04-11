@@ -1,0 +1,9 @@
+pygfx
+Cython
+PyQt5
+sckit-video
+pandas
+jupyterlab
+napari
+napari-plot
+
