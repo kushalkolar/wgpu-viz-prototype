@@ -1,5 +1,7 @@
 # wgpu-viz-prototype
-Prototype for very fast visualizations in the browser and browser
+Prototype for very fast visualizations in the browser using WebGPU/Vulkan for extremely fast and efficient GPU rendering.
+
+https://user-images.githubusercontent.com/9403332/164114915-ce8b4ffe-5e43-41a9-83ce-348ff785c411.mp4
 
 # Installation
 
