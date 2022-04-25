@@ -2,7 +2,7 @@ import numpy as np
 from itertools import product
 import pygfx
 from typing import *
-
+from functools import partial
 
 camera_types = {
     'o': pygfx.OrthographicCamera,
@@ -18,6 +18,7 @@ class Subplot:
         self.viewport: pygfx.Viewport  # might be better as an attribute of GridPlot
                                        # but easier to iterate when in same object as camera and scene
         self.position: Tuple[int, int] = None
+        self.get_rect: callable = None
 
     def add_graphic(self, graphic):
         self.scene.add(graphic.world_object)
@@ -26,18 +27,15 @@ class Subplot:
             dims = graphic.data.shape
             self.camera.set_view_size(*dims)
             self.camera.position.set(dims[0] / 2, dims[1] / 2, 0)
+            self.controller.update_camera(self.camera)
 
 
-w_div = 2
-h_div = 2
-
-
-def produce_rect(w, h):
+def _produce_rect(j, i, ncols, nrows, w, h):
     return [
-        (0, 0, w / w_div, h / h_div),
-        (w / w_div, 0, w / w_div, h / h_div),
-        (0, h / h_div, w / w_div, h / h_div),
-        (w / w_div, h / h_div, w / w_div, h / h_div)
+        ((w / ncols) + ((i - 1) * (w / ncols))),
+        ((h / nrows) + ((j - 1) * (h / nrows))),
+        (w / ncols),
+        (h / nrows)
     ]
 
 
@@ -79,18 +77,13 @@ class GridPlot:
             raise ValueError("controllers must be consecutive integers")
 
         self.canvas = canvas
-
         self.renderer = renderer
 
-        self._current_iter = None
-
         self.grid_shape = grid_shape
-
         nrows, ncols = self.grid_shape
 
         self.subplots: np.ndarray[Subplot] = np.ndarray(shape=(nrows, ncols), dtype=object)
-
-        self.viewports: np.ndarray[Subplot] = np.ndarray(shape=(nrows, ncols), dtype=object)
+        # self.viewports: np.ndarray[Subplot] = np.ndarray(shape=(nrows, ncols), dtype=object)
 
         self._controllers: List[pygfx.PanZoomController] = [
             pygfx.PanZoomController() for i in range(np.unique(controllers).size)
@@ -113,7 +106,10 @@ class GridPlot:
                 self.subplots[i, j].camera
             )
 
+            self.subplots[i, j].get_rect = partial(_produce_rect, i, j, ncols, nrows)
+
         self._animate_funcs: List[callable] = list()
+        self._current_iter = None
 
     def animate(self):
         for subplot in self:
@@ -121,8 +117,8 @@ class GridPlot:
 
         w, h = self.canvas.get_logical_size()
 
-        for i, subplot in enumerate(self):
-            subplot.viewport.rect = produce_rect(w, h)[i]
+        for subplot in self:
+            subplot.viewport.rect = subplot.get_rect(w, h)
             subplot.viewport.render(subplot.scene, subplot.camera)
 
         for f in self._animate_funcs:
