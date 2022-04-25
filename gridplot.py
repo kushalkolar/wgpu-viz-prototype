@@ -15,9 +15,12 @@ class Subplot:
         self.scene: pygfx.Scene = None
         self.camera: Union[pygfx.OrthographicCamera, pygfx.PerspectiveCamera] = None
         self.controller: pygfx.PanZoomController = None
+        self.viewport: pygfx.Viewport  # might be better as an attribute of GridPlot
+                                       # but easier to iterate when in same object as camera and scene
+        self.position: Tuple[int, int] = None
 
     def add_graphic(self, graphic):
-        self.scene.add(graphic)
+        self.scene.add(graphic.world_object)
 
         if isinstance(graphic, Image):
             dims = graphic.data.shape
@@ -25,9 +28,24 @@ class Subplot:
             self.camera.position.set(dims[0] / 2, dims[1] / 2, 0)
 
 
+w_div = 2
+h_div = 2
+
+
+def produce_rect(w, h):
+    return [
+        (0, 0, w / w_div, h / h_div),
+        (w / w_div, 0, w / w_div, h / h_div),
+        (0, h / h_div, w / w_div, h / h_div),
+        (w / w_div, h / h_div, w / w_div, h / h_div)
+    ]
+
+
 class GridPlot:
     def __init__(
-            self, renderer: pygfx.Renderer,
+            self,
+            canvas,
+            renderer: pygfx.Renderer,
             grid_shape: Tuple[int, int],
             cameras: np.ndarray,
             controllers: np.ndarray
@@ -39,6 +57,11 @@ class GridPlot:
         grid_shape:
             nrows, ncols
 
+        cameras: np.ndarray
+            Array of ``o`` and/or ``p`` that specifies camera type for each subplot:
+            ``o``: ``pygfx.OrthographicCamera``
+            ``p``: ``pygfx.PerspectiveCamera``
+
         controllers:
             numpy array of same shape as ``grid_shape`` that defines the controllers
             Example:
@@ -49,10 +72,21 @@ class GridPlot:
         if controllers.shape != grid_shape:
             raise ValueError
 
+        if cameras.shape != grid_shape:
+            raise ValueError
+
         if not np.all(np.sort(np.unique(controllers)) == np.arange(np.unique(controllers).size)):
             raise ValueError("controllers must be consecutive integers")
 
-        nrows, ncols = grid_shape
+        self.canvas = canvas
+
+        self.renderer = renderer
+
+        self._current_iter = None
+
+        self.grid_shape = grid_shape
+
+        nrows, ncols = self.grid_shape
 
         self.subplots: np.ndarray[Subplot] = np.ndarray(shape=(nrows, ncols), dtype=object)
 
@@ -62,25 +96,61 @@ class GridPlot:
             pygfx.PanZoomController() for i in range(np.unique(controllers).size)
         ]
 
-        for i, j in product(range(nrows), range(ncols)):
+        for i, j in self._get_iterator():
+            self.subplots[i, j] = Subplot()
+            self.subplots[i, j].position = (i, j)
+
             self.subplots[i, j].scene = pygfx.Scene()
             self.subplots[i, j].controller = self._controllers[controllers[i, j]]
             self.subplots[i, j].camera = camera_types.get(cameras[i, j])()
-            self.viewports[i, j] = pygfx.Viewport(renderer)
+
+            self.subplots[i, j].viewport = pygfx.Viewport(renderer)
+
+            # self.viewports[i, j] = pygfx.Viewport(renderer)
+
             self.subplots[i, j].controller.add_default_event_handlers(
-                self.viewports[i, j],
+                self.subplots[i, j].viewport,
                 self.subplots[i, j].camera
             )
+
+        self._animate_funcs: List[callable] = list()
+
+    def animate(self):
+        for subplot in self:
+            subplot.controller.update_camera(subplot.camera)
+
+        w, h = self.canvas.get_logical_size()
+
+        for i, subplot in enumerate(self):
+            subplot.viewport.rect = produce_rect(w, h)[i]
+            subplot.viewport.render(subplot.scene, subplot.camera)
+
+        for f in self._animate_funcs:
+            f()
+
+        self.renderer.flush()
+        self.canvas.request_draw()
+
+    def _get_iterator(self):
+        return product(range(self.grid_shape[0]), range(self.grid_shape[1]))
+
+    def __iter__(self):
+        self._current_iter = self._get_iterator()
+        return self
+
+    def __next__(self) -> Subplot:
+        pos = self._current_iter.__next__()
+        return self.subplots[pos]
 
 
 class Image:
     def __init__(self, data: np.ndarray, vmin: int, vmax: int, cmap: str = 'plasma'):
         self.data = data
-        self._image = pygfx.Image(
+        self.world_object = pygfx.Image(
             pygfx.Geometry(grid=pygfx.Texture(data, dim=2)),
             pygfx.ImageBasicMaterial(clim=(vmin, vmax), map=getattr(pygfx.cm, cmap))
         )
 
     def update_data(self, data: np.ndarray):
-        self._image.geometry.data[:] = data
-        self._image.geometry.update_range((0, 0, 0), self._image.geometry.grid.size)
+        self.world_object.geometry.data[:] = data
+        self.world_object.geometry.update_range((0, 0, 0), self.world_object.geometry.grid.size)
