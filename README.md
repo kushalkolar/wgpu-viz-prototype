@@ -1,3 +1,6 @@
+**This was an experimental demo, please see fastplotlib which is an experimental library built on top of pygfx**
+https://github.com/kushalkolar/fastplotlib
+
 # wgpu-viz-prototype
 Prototype for very fast visualizations in the browser using WebGPU/Vulkan for extremely fast and efficient GPU rendering.
 
